@@ -120,6 +120,13 @@ def test_directory_templates_keep_glob_characters_literal(root: Path) -> None:
     )
 
 
+def test_unmatched_sources_normalizes_its_own_candidate_paths(root: Path) -> None:
+    config = _load(root, '[documents]\n"README.md" = ["src/", "gone.py"]\n')
+    assert config.unmatched_sources(("./src/app.py",)) == (
+        "document `README.md` source `gone.py`",
+    )
+
+
 def test_an_absent_file_has_a_distinct_error(root: Path) -> None:
     with pytest.raises(MissingConfigError, match="does not exist"):
         load_config(root / "docstale.toml")

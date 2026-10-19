@@ -8,6 +8,7 @@ import pytest
 from docstale.git import (
     GitError,
     changed_worktree_paths,
+    file_at_commit,
     head_commit,
     last_change_commit,
     object_ids,
@@ -197,6 +198,53 @@ def test_object_ids_follow_the_checked_out_submodule_commit(
     assert object_ids(empty_repository)["vendor/lib"] == git(
         submodule, "rev-parse", "HEAD"
     )
+
+
+def test_committed_file_reading_distinguishes_absence_and_git_errors(
+    repository: Path,
+) -> None:
+    commit = git(repository, "rev-parse", "HEAD")
+    assert file_at_commit(repository, commit, "README.md") == "docs"
+    assert file_at_commit(repository, commit, "docstale.lock") is None
+    with pytest.raises(GitError):
+        file_at_commit(repository, "invalid-commit", "README.md")
+
+
+def test_committed_files_must_be_utf8(repository: Path) -> None:
+    (repository / "bad.lock").write_bytes(bytes([255]))
+    commit_all(repository, "invalid encoding")
+    with pytest.raises(GitError, match="not UTF-8 text"):
+        file_at_commit(repository, git(repository, "rev-parse", "HEAD"), "bad.lock")
+
+
+def test_changed_paths_reuse_supplied_untracked_paths(repository: Path) -> None:
+    (repository / "new.py").write_text("new", encoding="utf-8")
+    assert changed_worktree_paths(repository, untracked=()) == ()
+    assert changed_worktree_paths(repository, untracked=("new.py",)) == ("new.py",)
+    with pytest.raises(GitError):
+        changed_worktree_paths(repository, "invalid-commit", untracked=())
+
+
+def test_git_execution_errors_are_reported(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fail(*_args: object, **_kwargs: object) -> None:
+        raise OSError("git unavailable")
+
+    monkeypatch.setattr(subprocess, "run", fail)
+    with pytest.raises(GitError, match="could not execute git: git unavailable"):
+        resolve_root(str(root))
+
+
+def test_object_ids_skip_directories_that_replace_a_tracked_file(
+    repository: Path,
+) -> None:
+    source = repository / "src/app.py"
+    source.unlink()
+    source.mkdir()
+    assert "src/app.py" not in object_ids(repository)
+    git(source, "init", "-q")
+    assert "src/app.py" not in object_ids(repository)
 
 
 def test_git_failure_is_not_an_empty_change_set(root: Path) -> None:

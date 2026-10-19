@@ -337,6 +337,71 @@ def test_missing_config_does_not_create_a_baseline(
     assert not (default_state_directory(hook.root) / "baselines").exists()
 
 
+@pytest.mark.parametrize("already_reported", [False, True])
+def test_failed_description_does_not_acknowledge_unreported_fingerprints(
+    hook: HookRunner, already_reported: bool
+) -> None:
+    assert hook("SessionStart") == ""
+    source = hook.root / "src/app.py"
+    if already_reported:
+        source.write_text("v2", encoding="utf-8")
+        assert hook()
+    directory = default_state_directory(hook.root)
+    baseline = next((directory / "baselines").glob("*.json"))
+    baseline_content = baseline.read_bytes()
+    before = {
+        path.name: path.read_bytes() for path in (directory / "sessions").glob("*")
+    }
+    source.write_text("v3", encoding="utf-8")
+
+    def fail(*_args: object, **_kwargs: object) -> None:
+        raise GitError("description unavailable")
+
+    with hook.monkeypatch.context() as patch:
+        patch.setattr("docstale.cli.changed_worktree_paths", fail)
+        assert "description unavailable" in json.loads(hook())["reason"]
+    after = {
+        path.name: path.read_bytes() for path in (directory / "sessions").glob("*")
+    }
+    assert after == before
+    assert baseline.read_bytes() == baseline_content
+    assert "README.md" in json.loads(hook())["reason"]
+    assert hook() == ""
+
+
+@pytest.mark.parametrize("session", ["pi:one", "claude:one", "codex:one"])
+def test_hook_guidance_respects_client_and_user_authorization(
+    hook: HookRunner, session: str
+) -> None:
+    assert hook("SessionStart", session) == ""
+    (hook.root / "src/app.py").write_text("v2", encoding="utf-8")
+    reason = json.loads(hook("Stop", session))["reason"]
+    assert ("docstale-reviewer" in reason) is (not session.startswith("pi:"))
+    assert "read-only response or prohibits file edits" in reason
+    assert "only report the affected documents" in reason
+    assert "Do not edit files or run `docstale stamp`." in reason
+    assert "Pass one or more document paths." in reason
+    assert "New files that Git does not track do not appear in that diff." in reason
+    assert "Read those files directly." in reason
+
+
+def test_hook_orders_upstream_documents_before_downstream_documents(
+    hook: HookRunner,
+) -> None:
+    for name in ("a.md", "b.md", "z.md"):
+        (hook.root / name).write_text("docs", encoding="utf-8")
+    (hook.root / "docstale.toml").write_text(
+        '[documents]\n"a.md" = ["b.md", "src/"]\n'
+        '"b.md" = ["z.md", "src/"]\n"z.md" = ["src/"]\n',
+        encoding="utf-8",
+    )
+    hook.stamp()
+    assert hook("SessionStart") == ""
+    (hook.root / "src/app.py").write_text("v2", encoding="utf-8")
+    reason = json.loads(hook())["reason"]
+    assert reason.index("z.md (") < reason.index("b.md (") < reason.index("a.md (")
+
+
 def test_stop_reports_a_git_failure(hook: HookRunner) -> None:
     assert hook("SessionStart") == ""
 

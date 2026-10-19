@@ -1,5 +1,7 @@
 # docstale
 
+Checked on: 2026-10-19.
+
 Docstale reports documents whose sources changed since their last recorded
 review, using TOML, a committed lockfile, and Git.
 Keep it deterministic, with no LLM calls or heuristics and `pathspec` as its only
@@ -26,6 +28,8 @@ Stamp a document only after reading it against the changed sources.
 - Anchor source patterns to the repository root. Matching at any depth requires
   `**/`, and leading `!` and `#` are literal characters. A leading `@` names a
   set, and `{dir}` may only start a source.
+- Exclude the document itself and root `docstale.lock` from source matches.
+  Order documents upstream first, with deterministic path order for ties and cycles.
 
 ## Hook invariants
 
@@ -36,7 +40,12 @@ setup.
 - Return immediately when `stop_hook_active` is true, before accessing Git,
   configuration, or state.
 - Keep pi's staleness decisions and review text in Python. The adapter only
-  translates lifecycle events and the hook protocol.
+  translates lifecycle events and the hook protocol. Pi reminders must not
+  suggest a `docstale-reviewer` subagent.
+- A reminder does not authorize edits. For read-only requests, report affected
+  documents without file edits or stamps.
+- Save acknowledgements only after review entries are ready. A Git failure
+  during report preparation must preserve the earlier acknowledgement state.
 - Preserve earlier pi boundary entries. Request at most one review continuation
   per settled run. Never restart aborted or failed work.
 - Keep session baselines separate from acknowledgements. Resume, compaction,

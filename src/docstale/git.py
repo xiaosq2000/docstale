@@ -63,7 +63,27 @@ def last_change_commit(root: Path, path: str, text: str) -> str | None:
     return os.fsdecode(output).strip() or None
 
 
-def changed_worktree_paths(root: Path, commit: str | None = None) -> tuple[str, ...]:
+def file_at_commit(root: Path, commit: str, path: str) -> str | None:
+    """Read a UTF-8 file at a commit, or None when that tree has no such path."""
+    if not _run_git(root, ["ls-tree", "-z", commit, "--", path]):
+        return None
+    content = _run_git(root, ["show", f"{commit}:{path}"])
+    try:
+        return content.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise GitError(f"{path} at {commit} is not UTF-8 text: {exc}") from exc
+
+
+def untracked_paths(root: Path) -> tuple[str, ...]:
+    """Return non-ignored untracked paths."""
+    return _nul_paths(
+        _run_git(root, ["ls-files", "--others", "--exclude-standard", "-z"])
+    )
+
+
+def changed_worktree_paths(
+    root: Path, commit: str | None = None, *, untracked: tuple[str, ...] | None = None
+) -> tuple[str, ...]:
     """Return paths changed since a commit, HEAD by default, and untracked paths."""
     # A submodule counts when its commit changes, not when files inside it are
     # edited.
@@ -76,12 +96,7 @@ def changed_worktree_paths(root: Path, commit: str | None = None) -> tuple[str, 
         # Unborn HEAD: the index is the only thing there is to compare against.
         # Asking first would cost an extra `git` spawn on every agent hook fire.
         tracked = _nul_paths(_run_git(root, ["diff", "--cached", "--name-only", "-z"]))
-    changed = {
-        *tracked,
-        *_nul_paths(
-            _run_git(root, ["ls-files", "--others", "--exclude-standard", "-z"])
-        ),
-    }
+    changed = {*tracked, *(untracked_paths(root) if untracked is None else untracked)}
     return tuple(sorted(changed))
 
 
@@ -111,9 +126,7 @@ def object_ids(root: Path) -> dict[str, str]:
     )
     changed.update(
         path
-        for path in _nul_paths(
-            _run_git(root, ["ls-files", "--others", "--exclude-standard", "-z"])
-        )
+        for path in untracked_paths(root)
         # Git lists an untracked nested repository as a directory.
         if not path.endswith("/")
     )

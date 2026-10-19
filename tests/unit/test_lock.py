@@ -47,6 +47,13 @@ def test_a_missing_lock_has_no_entries(root: Path) -> None:
     assert read_lock(root / "docstale.lock") == {}
 
 
+def test_rejects_non_utf8_lock_files(root: Path) -> None:
+    path = root / "docstale.lock"
+    path.write_bytes(bytes([255]))
+    with pytest.raises(LockError, match="not UTF-8 text"):
+        read_lock(path)
+
+
 def test_drops_entries_that_a_merge_left_conflicting() -> None:
     text = (
         f"<<<<<<< ours\n{entry_line('README.md', README)}\n"

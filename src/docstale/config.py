@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import heapq
 import re
 import tomllib
 from collections import Counter
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import TYPE_CHECKING, Any, cast
 
 from docstale.errors import DocstaleError
+from docstale.match import matched_paths
 from docstale.paths import SourcePattern, has_glob, normalize_path, relative_path_error
 
 if TYPE_CHECKING:
@@ -57,17 +60,28 @@ class Config:
 
     def resolve(self, paths: Iterable[str]) -> tuple[Document, ...]:
         """Expand document globs, sets, and `{dir}` against repository paths."""
+        return self._resolve_candidates(_candidates(paths))
+
+    def _resolve_candidates(self, candidates: tuple[str, ...]) -> tuple[Document, ...]:
         sources: dict[str, set[str]] = {}
-        for _origin, document, pattern in self._expand(_candidates(paths)):
+        for _origin, document, pattern in self._expand(candidates):
             sources.setdefault(document, set()).add(pattern)
-        return tuple(
+        documents = tuple(
             Document(path=path, sources=tuple(sorted(patterns)))
             for path, patterns in sorted(sources.items())
+        )
+        by_path = {document.path: document for document in documents}
+        return tuple(
+            by_path[path]
+            for component in _dependency_components(documents)
+            for path in component
         )
 
     def unmatched_sources(self, paths: Iterable[str]) -> tuple[str, ...]:
         """Describe each configured source that matches no repository path."""
-        candidates = _candidates(paths)
+        return self._unmatched_sources(_candidates(paths))
+
+    def _unmatched_sources(self, candidates: tuple[str, ...]) -> tuple[str, ...]:
         patterns: dict[str, set[str]] = {}
         for origin, _document, pattern in self._expand(candidates):
             patterns.setdefault(origin, set()).add(pattern)
@@ -104,15 +118,103 @@ class Config:
 
 
 def _candidates(paths: Iterable[str]) -> tuple[str, ...]:
+    return _normalized_candidates(tuple(paths))
+
+
+@lru_cache(maxsize=128)
+def _normalized_candidates(paths: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(sorted({normalize_path(path) for path in paths if path}))
 
 
+@lru_cache(maxsize=1024)
 def _documents(key: str, candidates: tuple[str, ...]) -> tuple[str, ...]:
     """Return an exact key itself, or every candidate that a glob key matches."""
     if not has_glob(key):
         return (key,)
     pattern = SourcePattern(key)
     return tuple(path for path in candidates if pattern.matches(path))
+
+
+def _finish_order(edges: dict[str, set[str]]) -> tuple[str, ...]:
+    """Return DFS finish order without recursion."""
+    visited: set[str] = set()
+    finished: list[str] = []
+    for path in sorted(edges):
+        if path in visited:
+            continue
+        visited.add(path)
+        stack = [(path, iter(sorted(edges[path])))]
+        while stack:
+            node, neighbors = stack[-1]
+            neighbor = next(neighbors, None)
+            if neighbor is None:
+                finished.append(node)
+                stack.pop()
+            elif neighbor not in visited:
+                visited.add(neighbor)
+                stack.append((neighbor, iter(sorted(edges[neighbor]))))
+
+    return tuple(finished)
+
+
+def _strong_components(edges: dict[str, set[str]]) -> tuple[tuple[str, ...], ...]:
+    """Find SCCs with iterative Kosaraju passes, without a recursion limit."""
+    reverse: dict[str, set[str]] = {path: set() for path in edges}
+    for upstream, downstreams in edges.items():
+        for downstream in downstreams:
+            reverse[downstream].add(upstream)
+    visited: set[str] = set()
+    components: list[tuple[str, ...]] = []
+    for path in reversed(_finish_order(edges)):
+        if path in visited:
+            continue
+        pending = [path]
+        visited.add(path)
+        component: list[str] = []
+        while pending:
+            node = pending.pop()
+            component.append(node)
+            for neighbor in sorted(reverse[node]):
+                if neighbor not in visited:
+                    visited.add(neighbor)
+                    pending.append(neighbor)
+        components.append(tuple(sorted(component)))
+    return tuple(components)
+
+
+@lru_cache(maxsize=128)
+def _dependency_components(
+    documents: tuple[Document, ...],
+) -> tuple[tuple[str, ...], ...]:
+    """Order the SCC condensation DAG, with lexical ties and upstreams first."""
+    edges: dict[str, set[str]] = {document.path: set() for document in documents}
+    for document in documents:
+        for upstream in matched_paths(document, edges):
+            edges[upstream].add(document.path)
+    components = _strong_components(edges)
+    owner = {path: component for component in components for path in component}
+    outgoing: dict[tuple[str, ...], set[tuple[str, ...]]] = {
+        component: set() for component in components
+    }
+    incoming = dict.fromkeys(components, 0)
+    for upstream, downstreams in edges.items():
+        source = owner[upstream]
+        for downstream in downstreams:
+            target = owner[downstream]
+            if source != target and target not in outgoing[source]:
+                outgoing[source].add(target)
+                incoming[target] += 1
+    ready = [component for component in components if not incoming[component]]
+    heapq.heapify(ready)
+    ordered: list[tuple[str, ...]] = []
+    while ready:
+        component = heapq.heappop(ready)
+        ordered.append(component)
+        for target in sorted(outgoing[component]):
+            incoming[target] -= 1
+            if not incoming[target]:
+                heapq.heappush(ready, target)
+    return tuple(ordered)
 
 
 def _matches_any(pattern: str, candidates: tuple[str, ...]) -> bool:
@@ -312,7 +414,20 @@ def validate_repository(
     return (
         *(
             f"{config_path}: {origin} matches no file"
-            for origin in config.unmatched_sources(candidates)
+            for origin in config._unmatched_sources(candidates)  # noqa: SLF001
         ),
         *(f"{config_path}: set `{name}` is not used" for name in config.unused_sets()),
+        *(
+            f"{config_path}: document dependency cycle: "
+            + ", ".join(f"`{path}`" for path in component)
+            for component in _dependency_components(
+                tuple(
+                    sorted(
+                        config._resolve_candidates(candidates),  # noqa: SLF001
+                        key=lambda document: document.path,
+                    )
+                )
+            )
+            if len(component) > 1
+        ),
     )

@@ -7,6 +7,20 @@ import pytest
 from docstale.hook import HookInputError, parse_context
 
 
+@pytest.mark.parametrize(
+    ("raw", "message"),
+    [
+        ("{", "invalid hook JSON"),
+        ("[]", "must be a JSON object"),
+        ('{"cwd": "/repo", "stop_hook_active": false}', "missing `session_id`"),
+        ('{"session_id": "one", "stop_hook_active": false}', "missing `cwd`"),
+    ],
+)
+def test_rejects_missing_or_invalid_shared_fields(raw: str, message: str) -> None:
+    with pytest.raises(HookInputError, match=message):
+        parse_context(raw)
+
+
 @pytest.mark.parametrize("event", ["SessionStart", "Stop", None])
 def test_parses_supported_events(event: str | None) -> None:
     payload: dict[str, object] = {"session_id": "one", "cwd": "/repo"}

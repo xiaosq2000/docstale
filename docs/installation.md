@@ -1,5 +1,7 @@
 # Installation
 
+Checked on: 2026-10-19.
+
 Docstale requires Python 3.11 or newer and Git.
 
 ## Install the command
@@ -96,7 +98,7 @@ repository:
    repository has no lock yet.
 
 Docstale ignores hook state under `git rev-parse --git-path doc-sync`, so you can
-delete that directory.
+remove that directory.
 
 ## Remove docstale
 
