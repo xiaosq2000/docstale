@@ -1,5 +1,7 @@
 # Docstale
 
+Checked on: 2026-10-19.
+
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 
@@ -69,12 +71,24 @@ You need Python 3.11 or newer and Git.
    ```
 
 Editing a document does not count as a review. Only `docstale stamp` clears it.
+To record several reviews at once, pass one or more document paths:
+
+```bash
+docstale stamp README.md docs/api.md
+```
+
+When documents watch other documents, review upstream documents first.
+Docstale lists them in that order.
 
 ## Remind your coding agent
 
 Claude Code, Codex, and pi can run docstale when a session starts and before the
 agent finishes a request. If sources change during the session, docstale asks the
 agent to review the affected documents.
+
+A reminder does not grant permission to edit files. If your request requires a
+read-only response, the agent must only report the affected documents. It must
+not edit files or run `docstale stamp`.
 
 ### Claude Code and Codex
 

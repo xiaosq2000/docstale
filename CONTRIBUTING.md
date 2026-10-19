@@ -1,5 +1,7 @@
 # Contributing
 
+Checked on: 2026-10-19.
+
 Bug reports should include the command, configuration, Git state, expected
 result, and actual result. Remove private paths and repository content from
 logs before posting them.
@@ -27,6 +29,9 @@ uv run ty check
 npm test
 uv run docstale check
 ```
+
+To require full statement and branch coverage, run
+`uv run pytest --cov --cov-fail-under=100`.
 
 Ruff selects every rule, and ty treats every rule as an error. Both tools are
 pinned in `uv.lock` and bounded in `pyproject.toml`. Upgrade them deliberately
@@ -66,8 +71,8 @@ last recorded review, using the `[documents]` table in `docstale.toml` and the
 fingerprints in `docstale.lock`.
 
 - `config.py` parses the configuration, expands document globs, sets, and
-  `{dir}`, and validates document targets.
-- `paths.py` normalizes paths and compiles anchored source patterns.
+  `{dir}`, orders document dependencies, and checks document targets.
+- `paths.py` normalizes paths and caches compiled, anchored source patterns.
 - `match.py` contains the pure matching and fingerprint functions.
 - `lock.py` reads and writes `docstale.lock`.
 - `render.py` writes the review report and the hook reminder.

@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import pytest
 
-from docstale.paths import match_path, normalize_path, relative_path_error
+from docstale.paths import (
+    SourcePattern,
+    _compile,
+    match_path,
+    normalize_path,
+    relative_path_error,
+)
 
 
 @pytest.mark.parametrize(
@@ -50,8 +56,39 @@ def test_match_path(pattern: str, path: str, expected: bool) -> None:
     assert match_path(pattern, path) is expected
 
 
+@pytest.mark.parametrize(
+    ("pattern", "literal", "expected"),
+    [
+        (r"vendor/a\ b/", "vendor/a b", True),
+        (r"vendor/\[lib\]/", "vendor/[lib]", True),
+        (r"vendor/\[lib\]/", "vendor/l", False),
+        (r"vendor/\*\?/", "vendor/*?", True),
+        (r"vendor/a\ b/*/", "vendor/a b/lib", False),
+        (r"vendor/a\ b/*/", "vendor/a b/lib/file", True),
+        (r"vendor/\\[ab]/", "vendor/\\a", False),
+        ("", "src/app.py", False),
+        ("src/", "", False),
+    ],
+)
+def test_compiled_patterns_unescape_only_literal_directories(
+    pattern: str, literal: str, expected: bool
+) -> None:
+    assert SourcePattern(pattern).matches(literal) is expected
+
+
+def test_pattern_compilation_is_cached() -> None:
+    _compile.cache_clear()
+    first = SourcePattern("src/*.py")
+    second = SourcePattern("src/*.py")
+    assert first.matches("src/app.py")
+    assert second.matches("src/other.py")
+    assert _compile.cache_info().misses == 1
+    assert _compile.cache_info().hits == 1
+
+
 def test_normalizes_windows_separators() -> None:
     assert normalize_path(r"src\package\app.py") == "src/package/app.py"
+    assert normalize_path("./src////app.py") == "src/app.py"
 
 
 def test_preserves_whitespace_in_git_paths() -> None:

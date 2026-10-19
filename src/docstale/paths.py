@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+from functools import lru_cache
 from pathlib import PureWindowsPath
 
 from pathspec.patterns.gitignore.basic import GitIgnoreBasicPattern
@@ -41,6 +43,15 @@ def relative_path_error(location: str, raw_path: str, normalized: str) -> str | 
     return None
 
 
+@lru_cache(maxsize=1024)
+def _compile(pattern: str) -> GitIgnoreBasicPattern | None:
+    if not pattern:
+        return None
+    # Anchoring makes leading `!` and `#` literal, not negation or a comment.
+    compiled = GitIgnoreBasicPattern(f"/{pattern}")
+    return compiled if compiled.include else None
+
+
 class SourcePattern:
     """A normalized source pattern compiled once for repeated matching."""
 
@@ -48,26 +59,16 @@ class SourcePattern:
 
     def __init__(self, pattern: str) -> None:
         """Compile one normalized, repository-relative source pattern."""
-        self._pattern: GitIgnoreBasicPattern | None = None
-        # A literal directory pattern also names the directory itself, which
-        # Git reports as one path for a submodule or a symlink. A glob or an
-        # escaped pattern cannot tell that path from a file, so it does not.
+        self._pattern = _compile(pattern)
+        # Literal directories also name a submodule or symlink at that path.
+        # Ignore escaped characters when looking for globs, then unescape the
+        # directory that `{dir}` supplied. Actual globs still match only files
+        # inside their directories.
         self._directory = (
-            pattern.removesuffix("/")
-            if pattern.endswith("/") and not has_glob(pattern) and "\\" not in pattern
+            re.sub(r"\\(.)", r"\1", pattern.removesuffix("/"))
+            if pattern.endswith("/") and not has_glob(re.sub(r"\\.", "", pattern))
             else None
         )
-        if not pattern:
-            return
-        # Every pattern is anchored to the repository root, which is what the
-        # leading `/` means to gitignore. Matching at any depth is opt-in
-        # through an explicit `**/` prefix, so `app.py` names the root file
-        # while `**/app.py` names that file anywhere. Anchoring also makes a
-        # leading `!` or `#` an ordinary character rather than gitignore
-        # negation or a comment, neither of which docstale supports.
-        compiled = GitIgnoreBasicPattern(f"/{pattern}")
-        if compiled.include:
-            self._pattern = compiled
 
     def matches(self, normalized_path: str) -> bool:
         """Return whether an already-normalized path matches this pattern."""

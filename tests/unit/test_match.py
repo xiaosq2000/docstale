@@ -17,6 +17,19 @@ def test_a_document_never_matches_itself() -> None:
     assert matched_paths(README, IDS) == ("src/app.py",)
 
 
+def test_the_root_lock_is_never_a_source_even_for_broad_patterns() -> None:
+    document = Document("README.md", ("**", "docstale.lock"))
+    ids = {"README.md": "a", "docstale.lock": "b", "src/app.py": "c"}
+    assert matched_paths(document, ids) == ("src/app.py",)
+    assert fingerprint(document, ids) == fingerprint(
+        document, {**ids, "docstale.lock": "changed"}
+    )
+    assert matched_paths(document, (*ids, "nested/docstale.lock")) == (
+        "nested/docstale.lock",
+        "src/app.py",
+    )
+
+
 def test_a_fingerprint_covers_only_matched_sources() -> None:
     original = fingerprint(README, IDS)
 
@@ -38,6 +51,16 @@ def test_message_names_documents_and_sources() -> None:
     message = build_review_message((Review("README.md", ("src/app.py",)),))
 
     assert "README.md\n  src/app.py" in message
+
+
+def test_empty_source_diagnostics_never_suggest_a_history_heading() -> None:
+    message = build_review_message(
+        (Review("a.md", (), since="abc"), Review("b.md", ()))
+    )
+    assert "a.md (source list unavailable)" in message
+    assert "b.md (source list unavailable)" in message
+    assert "changed since" not in message
+    assert "Read the document and its configured sources directly." in message
 
 
 def test_message_says_since_when_and_whether_a_document_was_stamped() -> None:

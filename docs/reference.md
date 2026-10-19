@@ -1,5 +1,7 @@
 # Docstale reference
 
+Checked on: 2026-10-19.
+
 This page describes every setting and behavior. To set docstale up, start with
 the [README](../README.md).
 
@@ -23,7 +25,12 @@ any depth.
 
 A directory pattern without glob characters, such as `vendor/lib/`, also
 matches a submodule or symlink at that path. A submodule counts as changed when
-its commit changes, not when files inside it are edited.
+its commit changes, not when files inside it are edited. This also applies when
+`{dir}` supplies a directory name with spaces or literal glob characters.
+
+Source matches always exclude the document itself and the root `docstale.lock`.
+This exclusion also applies to broad patterns such as `**` and explicit
+`docstale.lock` sources. Writing a stamp therefore cannot invalidate itself.
 
 ### Shared source lists
 
@@ -68,6 +75,7 @@ already covers.
 ```bash
 docstale check
 docstale stamp README.md
+docstale stamp README.md docs/api.md
 docstale stamp --all
 ```
 
@@ -77,21 +85,42 @@ never stamped. The command always prints a result. It exits `0` when no document
 needs review, `2` when review is required, and `1` for configuration or Git
 errors.
 
-`check` also validates the configuration. It fails when an exact document does
+`check` also checks the configuration. It fails when an exact document does
 not exist or a glob key matches no document. Sources that match no file and sets
 that no document uses produce warnings on stderr without changing the exit
-code, so a shared configuration can refer to files that exist only on another
-branch.
+code. A shared configuration can therefore refer to files that exist only on
+another branch. Dependency cycles and lock entries for documents no longer
+configured also produce `docstale warning:` messages. Warnings do not change
+JSON output or the exit code.
 
 After you review a document, and update it if needed, record the review with
-`docstale stamp` and the document's repository-relative path. Editing a document
-does not record a review. `stamp --all` stamps every document, which is how a
-repository starts using the lock. Every stamp also drops entries for documents
-that are no longer configured.
+`docstale stamp` and one or more repository-relative document paths. Editing a
+document does not record a review. `stamp --all` stamps every document, which is
+how a repository starts using the lock. Every stamp also drops entries for
+documents that are no longer configured.
+
+A path that is not a configured document causes an error before any stamp.
+If configured documents watch that path as a source, the error names those
+documents.
 
 A fingerprint covers the Git object id of every file that the document's sources
-match, except the document itself. It is the same on every clone and platform.
-Reverting a source change makes the document current again.
+match, except the document itself and the root `docstale.lock`. It is the same
+on every clone and platform. Reverting a source change makes the document
+current again.
+
+### Review order
+
+When one document watches another document, docstale lists the upstream document
+first. Review and update upstream documents before their downstream documents.
+An upstream document edit can make a downstream document need review.
+
+Docstale groups dependency cycles into strongly connected components. It orders
+these groups by their dependency graph. It uses path order within each cycle
+and to choose between groups with no remaining upstream dependency. Cycles
+produce warnings, not errors. A document that matches itself does not form a
+cycle because source matches exclude the document itself.
+
+### Lock and report
 
 ```mermaid
 stateDiagram-v2
@@ -124,10 +153,21 @@ Use `--json` for scripts:
 }
 ```
 
-`since` is the commit that recorded the current stamp. For a stamp that is not
-committed yet, it is the commit at `HEAD`. `sources` lists the matched files that
-changed since that commit. A document that was never stamped has `stamped` set
-to `false`, `since` set to `null`, and no sources.
+`since` is the commit that recorded the lock fingerprint. If the working
+stamp has no matching history, docstale uses the committed stamp from
+`HEAD:docstale.lock` to find that commit. If that entry or its history is absent,
+docstale uses `HEAD`. Before the first commit, `since` is `null`.
+
+`sources` lists the matched files that changed since that commit. Untracked
+files also appear in this list. They do not appear in
+`git diff <commit> -- <source>`, so read them directly.
+
+A stamped document can need review with an empty `sources` list. Source patterns
+can add or remove unchanged files, or a shallow clone can lack the required
+history. The text report explains this case without a `changed since` heading.
+Read the document and its configured sources directly. The JSON fields stay the
+same. A document that was never stamped has `stamped` set to `false`, `since`
+set to `null`, and no sources.
 
 ## Agent hook
 
@@ -147,13 +187,17 @@ the lock and the baseline:
 | Needs review | A source changes again | Yes |
 | Either | The sources return to their starting or stamped state | No |
 
-A session that only reads files or answers questions therefore gets no reminder.
-The reminder lists every source that changed since the document was stamped, and
-stamping the document clears it. The baseline is preserved when the same session
-resumes or compacts.
+A read-only request gets no reminder if its matched sources stay unchanged.
+Docstale observes repository state, not which actor changed a file. The reminder
+lists changed sources when Git history permits. Stamping the document clears
+it. The baseline is preserved when the same session resumes or compacts.
+
+A reminder does not grant permission to edit files. If the current user request
+requires a read-only response or prohibits edits, the agent must only report
+the affected documents. It must not edit files or run `docstale stamp`.
 
 Changes made by you or other tools in the same checkout during the session also
-count, and so does a configuration change that alters a document's matched
+count, and so does a configuration change that changes a document's matched
 files. Committing session edits does not hide them from the hook. Staging or
 committing existing edits alone does not trigger a reminder.
 
@@ -165,7 +209,9 @@ reminder.
 The agent protocol marks a continuation with `stop_hook_active`. Docstale lets
 that continuation stop without running another check. It also remembers the
 fingerprint at which it last reported each document in a session, so a document
-is reported again only after its sources change again.
+is reported again only after its sources change again. The hook saves
+acknowledgements only after it builds the review entries. A Git failure during
+that step preserves earlier acknowledgements.
 
 Baselines and acknowledgements live separately under
 `git rev-parse --git-path docstale`. They contain document fingerprints, not
@@ -191,9 +237,11 @@ protocol. It does not implement a separate check.
 | `session_shutdown` | Cancel any pending hook process. |
 
 The adapter prefixes session IDs with `pi:` to separate pi state from other
-agents' state. Resume and reload use the existing session ID and preserve its
-baseline. Compaction and tree navigation do not capture another baseline. New
-sessions and forks use their own session IDs and baselines.
+agents' state. Pi reminders omit the `docstale-reviewer` subagent instructions.
+Python selects the reminder text from the session prefix. Resume and reload use
+the existing session ID and preserve its baseline. Compaction and tree navigation
+do not capture another baseline. New sessions and forks use their own session
+IDs and baselines.
 
 The adapter skips the check during its review continuation. It does not check or
 request a continuation when pi reports an aborted or failed run. If another
@@ -221,15 +269,17 @@ newer, which provides the actionable `agent_before_settle` event.
 
 ## Reviewer subagent
 
-The hook reminder suggests a `docstale-reviewer` subagent when the agent has
-one. The subagent reads the source diff and the document and reports whether
-the document needs an update. It does not edit files or stamp documents, so the
+Claude Code and Codex reminders suggest a `docstale-reviewer` subagent when
+available. Pi reminders do not suggest this subagent. The subagent reads the
+source diff and the document and reports whether the document needs an update. It does not edit files or stamp documents, so the
 main agent stays responsible for both. Without the subagent, the main agent
-reviews each document itself.
+reviews each document itself. Read-only user requests prohibit edits and stamps
+in both cases.
 
-The main agent stamps `unaffected` documents, updates and then stamps
-`affected` ones, and asks you about `unsure` ones. A small model keeps each
-review cheap, and every stamp stays visible in the `docstale.lock` diff.
+When the user permits edits, the main agent stamps `unaffected` documents.
+It updates and then stamps `affected` documents. It asks you about `unsure`
+documents. A small model keeps each review cheap. Every stamp stays visible in
+the `docstale.lock` diff.
 
 ### Reviewer model
 
@@ -270,5 +320,6 @@ Pre-commit sets unstaged changes aside while hooks run, so stage
 passing hook unless the hook sets `verbose: true`.
 
 In CI, a shallow checkout gives the right result. The report lists changed sources
-only when the history includes the commit that recorded each stamp, so use
-`fetch-depth: 0` if you want that list.
+only when the history includes the commit that recorded each stamp. Use
+`fetch-depth: 0` if you want that list. With insufficient history, the text
+report explains why no changed source paths are available.

@@ -6,6 +6,7 @@ import hashlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from docstale.lock import LOCK_FILENAME
 from docstale.paths import SourcePattern
 
 if TYPE_CHECKING:
@@ -36,13 +37,13 @@ class Review:
 
 
 def matched_paths(document: Document, paths: Iterable[str]) -> tuple[str, ...]:
-    """Return the paths that a document's sources match, except the document."""
+    """Return matched sources, excluding the document and docstale's lock."""
     patterns = tuple(SourcePattern(source) for source in document.sources)
     return tuple(
         sorted(
             path
             for path in paths
-            if path != document.path
+            if path not in {document.path, LOCK_FILENAME}
             and any(pattern.matches(path) for pattern in patterns)
         )
     )

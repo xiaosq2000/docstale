@@ -25,6 +25,7 @@ def test_reports_each_fingerprint_once_per_session(root: Path) -> None:
     assert store.unreported(session_id="one", candidates={"README.md": OLD}) == (
         "README.md",
     )
+    store.acknowledge(session_id="one", candidates={"README.md": OLD})
     assert store.unreported(session_id="one", candidates={"README.md": OLD}) == ()
     assert store.unreported(session_id="two", candidates={"README.md": OLD}) == (
         "README.md",
@@ -36,7 +37,7 @@ def test_reports_each_fingerprint_once_per_session(root: Path) -> None:
 
 def test_reports_only_documents_with_a_new_fingerprint(root: Path) -> None:
     store = AcknowledgementStore(root / "state")
-    store.unreported(session_id="one", candidates={"README.md": OLD})
+    store.acknowledge(session_id="one", candidates={"README.md": OLD})
 
     assert store.unreported(
         session_id="one", candidates={"README.md": OLD, "docs/api.md": OLD}
@@ -45,8 +46,8 @@ def test_reports_only_documents_with_a_new_fingerprint(root: Path) -> None:
 
 def test_a_document_that_stops_being_a_candidate_is_forgotten(root: Path) -> None:
     store = AcknowledgementStore(root / "state")
-    store.unreported(session_id="one", candidates={"README.md": OLD})
-    store.unreported(session_id="one", candidates={})
+    store.acknowledge(session_id="one", candidates={"README.md": OLD})
+    store.acknowledge(session_id="one", candidates={})
 
     assert store.unreported(session_id="one", candidates={"README.md": OLD}) == (
         "README.md",
@@ -57,7 +58,22 @@ def test_nothing_to_report_writes_no_state(root: Path) -> None:
     store = AcknowledgementStore(root / "state")
 
     assert store.unreported(session_id="one", candidates={}) == ()
+    store.acknowledge(session_id="one", candidates={})
     assert not (root / "state").exists()
+
+
+def test_filtering_does_not_acknowledge_before_a_report_is_ready(root: Path) -> None:
+    store = AcknowledgementStore(root / "state")
+    for _ in range(2):
+        assert store.unreported(session_id="one", candidates={"README.md": OLD}) == (
+            "README.md",
+        )
+    assert not (root / "state").exists()
+    store.acknowledge(session_id="one", candidates={"README.md": OLD})
+    path = next((root / "state/sessions").glob("*.json"))
+    modified = path.stat().st_mtime_ns
+    store.acknowledge(session_id="one", candidates={"README.md": OLD})
+    assert path.stat().st_mtime_ns == modified
 
 
 def test_the_hook_switch_round_trips(root: Path) -> None:

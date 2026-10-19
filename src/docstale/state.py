@@ -111,20 +111,23 @@ class AcknowledgementStore:
     def unreported(
         self, *, session_id: str, candidates: Mapping[str, str]
     ) -> tuple[str, ...]:
-        """Return candidates not yet reported at their fingerprint, then save all.
-
-        A document that stops being a candidate is forgotten, so it is reported
-        again if the same fingerprint returns later.
-        """
-        path = self._path(session_id)
-        reported = _read_fingerprints(path, STATE_VERSION) or {}
-        if reported != candidates:
-            _write_fingerprints(path, STATE_VERSION, candidates)
+        """Return candidates not yet reported, without changing reminder state."""
+        reported = _read_fingerprints(self._path(session_id), STATE_VERSION) or {}
         return tuple(
             document
             for document, fingerprint in sorted(candidates.items())
             if reported.get(document) != fingerprint
         )
+
+    def acknowledge(self, *, session_id: str, candidates: Mapping[str, str]) -> None:
+        """Save candidates only after their review report is ready.
+
+        Forget documents that stopped being candidates, so the same fingerprint
+        can trigger another report if it returns later.
+        """
+        path = self._path(session_id)
+        if (_read_fingerprints(path, STATE_VERSION) or {}) != candidates:
+            _write_fingerprints(path, STATE_VERSION, candidates)
 
     def clear(self, session_id: str) -> None:
         """Clear reminder state for one session."""
