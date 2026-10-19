@@ -5,6 +5,8 @@ Semantic Versioning after its first stable release.
 
 ## Unreleased
 
+## 0.1.1
+
 ### Fixed
 
 - `check` lists upstream documents first. It reports document dependency cycles
@@ -13,8 +15,6 @@ Semantic Versioning after its first stable release.
   configured document before it writes the lock.
 - Source matches exclude `docstale.lock`, so a stamp cannot make its own
   document stale.
-
-## 0.1.1
 
 ### Added
 
