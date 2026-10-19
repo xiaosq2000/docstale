@@ -5,6 +5,17 @@ Semantic Versioning after its first stable release.
 
 ## Unreleased
 
+### Fixed
+
+- `check` lists upstream documents first. It reports document dependency cycles
+  as warnings and keeps a deterministic order for later documents.
+- `stamp` accepts one or more document paths. It rejects a path that is not a
+  configured document before it writes the lock.
+- Source matches exclude `docstale.lock`, so a stamp cannot make its own
+  document stale.
+
+## 0.1.1
+
 ### Added
 
 - A pi extension reuses `docstale hook` for session baselines and review
