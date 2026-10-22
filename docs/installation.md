@@ -1,6 +1,6 @@
 # Installation
 
-Checked on: 2026-10-19.
+Checked on: 2026-10-22.
 
 Docstale requires Python 3.11 or newer and Git.
 
@@ -131,7 +131,8 @@ yourself if you no longer need them.
   and open a new shell.
 - If it is not found after a `pipx` install, run `pipx ensurepath` and open a
   new shell.
-- If docstale cannot find a repository, run it inside a Git worktree.
+- Run manual commands inside a Git worktree. Agent hooks stay silent outside
+  a Git repository.
 - If a Codex hook does not run, open `/hooks` and check its trust state.
 - If Codex cannot load the reviewer, check that your version supports native
   `.codex/agents/*.toml` files. Check the model and reasoning effort in the

@@ -17,11 +17,22 @@ class GitError(DocstaleError, RuntimeError):
     """Raised when docstale cannot query repository state."""
 
 
-def _run_git(root: Path, arguments: list[str], *, stdin: bytes | None = None) -> bytes:
+class NotGitRepositoryError(GitError):
+    """Raised when Git discovery finds no repository."""
+
+
+def _run_git(
+    root: Path,
+    arguments: list[str],
+    *,
+    stdin: bytes | None = None,
+    env: dict[str, str] | None = None,
+) -> bytes:
     try:
         result = subprocess.run(  # noqa: S603
             ["git", "-C", str(root), *arguments],  # noqa: S607
             input=stdin,
+            env=env,
             capture_output=True,
             check=False,
         )
@@ -29,7 +40,17 @@ def _run_git(root: Path, arguments: list[str], *, stdin: bytes | None = None) ->
         raise GitError(f"could not execute git: {exc}") from exc
     if result.returncode != 0:
         detail = os.fsdecode(result.stderr).strip() or "unknown git error"
-        raise GitError(f"git {' '.join(arguments)} failed: {detail}")
+        # Missing repositories mention the parent-directory search. Invalid
+        # explicit Git directories have a different diagnostic and remain errors.
+        error = (
+            NotGitRepositoryError
+            if any(
+                line.startswith(b"fatal: not a git repository (")
+                for line in result.stderr.splitlines()
+            )
+            else GitError
+        )
+        raise error(f"git {' '.join(arguments)} failed: {detail}")
     return result.stdout
 
 
@@ -40,7 +61,13 @@ def _nul_paths(output: bytes) -> tuple[str, ...]:
 def resolve_root(raw_root: str | None = None) -> Path:
     """Resolve and validate the Git repository root."""
     candidate = Path(raw_root).resolve() if raw_root else Path.cwd().resolve()
-    output = _run_git(candidate, ["rev-parse", "--show-toplevel"])
+    # Only discovery needs a fixed diagnostic language. Keep the caller's
+    # locale for other commands, including those that invoke Git filters.
+    output = _run_git(
+        candidate,
+        ["rev-parse", "--show-toplevel"],
+        env={**os.environ, "LC_ALL": "C"},
+    )
     return Path(os.fsdecode(output).strip()).resolve()
 
 

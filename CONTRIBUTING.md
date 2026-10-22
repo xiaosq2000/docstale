@@ -1,6 +1,6 @@
 # Contributing
 
-Checked on: 2026-10-19.
+Checked on: 2026-10-22.
 
 Bug reports should include the command, configuration, Git state, expected
 result, and actual result. Remove private paths and repository content from

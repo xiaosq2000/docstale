@@ -173,6 +173,23 @@ test("a missing configuration stays silent", async (t) => {
 	assert.deepEqual(harness.notifications, []);
 });
 
+test("a non-Git directory stays silent across requests", async (t) => {
+	const root = mkdtempSync(join(tmpdir(), "docstale-pi-no-git-"));
+	t.after(() => rmSync(root, { recursive: true, force: true }));
+	const harness = createHarness(root);
+	await harness.start();
+	for (let request = 0; request < 3; request++) {
+		assert.equal(await harness.stop(), undefined);
+		await harness.settled();
+	}
+	// A configuration file does not make a directory a Git repository.
+	writeFileSync(join(root, "docstale.toml"), "[broken");
+	await harness.start("reload");
+	assert.equal(await harness.stop(), undefined);
+	assert.deepEqual(harness.notifications, []);
+	assert.deepEqual(readdirSync(root), ["docstale.toml"]);
+});
+
 test("a broken configuration warns at startup and requests one Stop continuation", async (t) => {
 	const { harness, write } = fixture(t);
 	write("docstale.toml", "[broken");

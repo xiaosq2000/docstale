@@ -1,6 +1,6 @@
 # Security policy
 
-Checked on: 2026-10-19.
+Checked on: 2026-10-22.
 
 Docstale runs Git commands, writes `docstale.lock` when you stamp a document,
 and keeps hook state under Git metadata. It does not edit agent settings or

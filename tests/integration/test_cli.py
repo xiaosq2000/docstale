@@ -4,14 +4,14 @@ import io
 import json
 from typing import TYPE_CHECKING
 
+import pytest
+
 from docstale.cli import main
 from docstale.lock import entry_line
 from tests.support import commit_all, git, write_config
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-    import pytest
 
 BROKEN_CONFIG = "[documents\n"
 PACKAGE_CONFIG = '[documents]\n"packages/*/README.md" = ["{dir}/"]\n'
@@ -362,6 +362,30 @@ def test_check_warns_about_unmatched_sources_without_failing(
     assert warning.endswith(
         "docstale.toml: document `README.md` source `gone/` matches no file"
     )
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["check"],
+        ["check", "--json"],
+        ["stamp", "--all"],
+        ["disable"],
+        ["enable"],
+    ],
+)
+def test_manual_commands_fail_outside_a_git_repository(
+    root: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    arguments: list[str],
+) -> None:
+    monkeypatch.chdir(root)
+    assert main(arguments) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "docstale error:" in captured.err
+    assert "not a git repository" in captured.err
 
 
 def test_manual_error_uses_stderr_and_exit_one(

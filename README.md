@@ -1,6 +1,6 @@
 # Docstale
 
-Checked on: 2026-10-19.
+Checked on: 2026-10-22.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
@@ -84,7 +84,8 @@ Docstale lists them in that order.
 
 Claude Code, Codex, and pi can run docstale when a session starts and before the
 agent finishes a request. If sources change during the session, docstale asks the
-agent to review the affected documents.
+agent to review the affected documents. Outside a Git repository, the hooks
+stay silent.
 
 A reminder does not grant permission to edit files. If your request requires a
 read-only response, the agent must only report the affected documents. It must

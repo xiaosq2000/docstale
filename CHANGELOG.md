@@ -5,6 +5,11 @@ Semantic Versioning after its first stable release.
 
 ## Unreleased
 
+### Fixed
+
+- Agent hooks stay silent outside a Git repository. They do not produce repeated
+  errors or request continuations there. Manual commands still report an error.
+
 ## 0.1.1
 
 ### Fixed

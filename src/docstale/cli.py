@@ -17,6 +17,7 @@ from docstale.config import (
 )
 from docstale.errors import DocstaleError
 from docstale.git import (
+    NotGitRepositoryError,
     changed_worktree_paths,
     file_at_commit,
     head_commit,
@@ -225,7 +226,11 @@ def _run_hook() -> int:
         context = parse_context(sys.stdin.read())
         if context.stop_hook_active:
             return 0
-        reviews = _hook_reviews(root=resolve_root(str(context.cwd)), context=context)
+        try:
+            root = resolve_root(str(context.cwd))
+        except NotGitRepositoryError:
+            return 0
+        reviews = _hook_reviews(root=root, context=context)
         if reviews:
             guidance = (
                 PI_HOOK_GUIDANCE

@@ -9,9 +9,15 @@ import pytest
 
 from docstale import state
 from docstale.cli import main
-from docstale.git import GitError
+from docstale.git import GitError, NotGitRepositoryError
 from docstale.state import BaselineStore, default_state_directory
-from tests.support import add_submodule, commit_all, git, write_config
+from tests.support import (
+    add_submodule,
+    commit_all,
+    git,
+    initialize_repository,
+    write_config,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -84,6 +90,24 @@ def test_missing_baseline_initializes_silently(hook: HookRunner) -> None:
     assert hook() == ""
     source.write_text("later edit", encoding="utf-8")
     assert json.loads(hook())["decision"] == "block"
+
+
+@pytest.mark.parametrize("event", ["SessionStart", "Stop"])
+@pytest.mark.parametrize("configured", [False, True])
+def test_non_git_directory_is_silent_without_creating_state(
+    root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    event: str,
+    configured: bool,
+) -> None:
+    if configured:
+        (root / "docstale.toml").write_text("[broken", encoding="utf-8")
+    before = set(root.rglob("*"))
+    runner = HookRunner(root, monkeypatch, capsys)
+    assert runner(event) == ""
+    assert runner(event) == ""
+    assert set(root.rglob("*")) == before
 
 
 def test_unrelated_edits_are_silent(hook: HookRunner) -> None:
@@ -321,6 +345,47 @@ def test_session_start_failure_uses_stderr(hook: HookRunner) -> None:
 
 
 @pytest.mark.parametrize("event", ["SessionStart", "Stop"])
+@pytest.mark.parametrize("failure", ["gitdir", "config", "executable"])
+def test_repository_discovery_failures_are_reported(
+    root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    event: str,
+    failure: str,
+) -> None:
+    if failure == "gitdir":
+        (root / ".git").write_text("gitdir: missing\n", encoding="utf-8")
+    elif failure == "config":
+        initialize_repository(root)
+        (root / ".git/config").write_text("[broken", encoding="utf-8")
+    else:
+        monkeypatch.setenv("PATH", "")
+    monkeypatch.setattr(
+        "sys.stdin",
+        io.StringIO(
+            json.dumps(
+                {
+                    "session_id": "one",
+                    "cwd": str(root),
+                    "hook_event_name": event,
+                    "stop_hook_active": False,
+                }
+            )
+        ),
+    )
+    assert main(["hook"]) == 0
+    captured = capsys.readouterr()
+    if event == "SessionStart":
+        assert captured.out == ""
+        assert "docstale could not complete its check" in captured.err
+    else:
+        assert captured.err == ""
+        response = json.loads(captured.out)
+        assert response["decision"] == "block"
+        assert "docstale could not complete its check" in response["reason"]
+
+
+@pytest.mark.parametrize("event", ["SessionStart", "Stop"])
 def test_disabled_hook_does_not_create_a_baseline(hook: HookRunner, event: str) -> None:
     directory = default_state_directory(hook.root)
     state.set_disabled(directory, disabled=True)
@@ -402,11 +467,12 @@ def test_hook_orders_upstream_documents_before_downstream_documents(
     assert reason.index("z.md (") < reason.index("b.md (") < reason.index("a.md (")
 
 
-def test_stop_reports_a_git_failure(hook: HookRunner) -> None:
+@pytest.mark.parametrize("error", [GitError, NotGitRepositoryError])
+def test_stop_reports_a_git_failure(hook: HookRunner, error: type[GitError]) -> None:
     assert hook("SessionStart") == ""
 
     def fail(_root: Path) -> None:
-        raise GitError("object ids are unavailable")
+        raise error("object ids are unavailable")
 
     hook.monkeypatch.setattr("docstale.cli.object_ids", fail)
     response = json.loads(hook())
