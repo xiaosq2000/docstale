@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 from typing import TYPE_CHECKING
 
@@ -7,6 +8,7 @@ import pytest
 
 from docstale.git import (
     GitError,
+    NotGitRepositoryError,
     changed_worktree_paths,
     file_at_commit,
     head_commit,
@@ -247,6 +249,33 @@ def test_object_ids_skip_directories_that_replace_a_tracked_file(
     assert "src/app.py" not in object_ids(repository)
 
 
+@pytest.mark.parametrize(
+    "diagnostic",
+    [
+        b"fatal: not a git repository (or any of the parent directories): .git\n",
+        b"fatal: not a git repository (or any parent up to mount point /)\n"
+        b"Stopping at filesystem boundary (GIT_DISCOVERY_ACROSS_FILESYSTEM not set).\n",
+        b"trace: git rev-parse --show-toplevel\n"
+        b"fatal: not a git repository (or any of the parent directories): .git\n",
+    ],
+)
+def test_discovery_classifies_missing_repositories_with_a_fixed_locale(
+    root: Path, monkeypatch: pytest.MonkeyPatch, diagnostic: bytes
+) -> None:
+    monkeypatch.setenv("LC_ALL", "zh_CN.UTF-8")
+
+    def run(
+        command: list[str], **options: object
+    ) -> subprocess.CompletedProcess[bytes]:
+        assert options["env"] == {**os.environ, "LC_ALL": "C"}
+        return subprocess.CompletedProcess(command, 128, stdout=b"", stderr=diagnostic)
+
+    monkeypatch.setattr(subprocess, "run", run)
+    with pytest.raises(NotGitRepositoryError):
+        resolve_root(str(root))
+    assert os.environ["LC_ALL"] == "zh_CN.UTF-8"
+
+
 def test_git_failure_is_not_an_empty_change_set(root: Path) -> None:
-    with pytest.raises(GitError):
+    with pytest.raises(NotGitRepositoryError):
         resolve_root(str(root))

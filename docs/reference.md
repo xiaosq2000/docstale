@@ -1,6 +1,6 @@
 # Docstale reference
 
-Checked on: 2026-10-19.
+Checked on: 2026-10-22.
 
 This page describes every setting and behavior. To set docstale up, start with
 the [README](../README.md).
@@ -171,10 +171,14 @@ set to `null`, and no sources.
 
 ## Agent hook
 
-The hook stays silent when no `docstale.toml` exists or no review is needed. A
-broken configuration returns a continuation message at Stop so the agent can
-report or fix it. SessionStart failures are reported on stderr without blocking
-the session.
+The hook stays silent outside a Git repository, when no `docstale.toml` exists,
+or when no review is needed. Outside a Git repository, it creates no state and
+does not request a continuation. Manual commands still report an error there.
+
+A broken configuration or Git failure returns a continuation message at Stop
+so the agent can report or fix it. SessionStart failures are reported on stderr
+without blocking the session. An invalid Git directory target, a broken Git
+configuration, and a missing Git executable remain errors.
 
 SessionStart saves a baseline with the fingerprint of every document. At Stop,
 the hook asks for a review of each document whose fingerprint differs from both

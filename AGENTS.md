@@ -1,6 +1,6 @@
 # docstale
 
-Checked on: 2026-10-19.
+Checked on: 2026-10-22.
 
 Docstale reports documents whose sources changed since their last recorded
 review, using TOML, a committed lockfile, and Git.
@@ -39,6 +39,8 @@ setup.
 
 - Return immediately when `stop_hook_active` is true, before accessing Git,
   configuration, or state.
+- Skip a hook when Git discovery finds no repository. Keep other Git errors
+  visible.
 - Keep pi's staleness decisions and review text in Python. The adapter only
   translates lifecycle events and the hook protocol. Pi reminders must not
   suggest a `docstale-reviewer` subagent.
